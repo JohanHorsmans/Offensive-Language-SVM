@@ -1,0 +1,41 @@
+---
+title: "SVM - with DTM"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(pacman)
+p_load(RTextTools,quanteda.textmodels)
+
+# training data
+danish_data <- read_delim("offenseval-da-training-v1.tsv","\t", escape_double = FALSE, trim_ws = TRUE) %>% na.omit
+# test data
+danish_data_test <- read_delim("offenseval-da-test-v1.tsv","\t", escape_double = FALSE, trim_ws = TRUE) %>% na.omit
+
+danish_data$subtask_a<-as.factor(danish_data$subtask_a)
+danish_data_test$subtask_a<-as.factor(danish_data_test$subtask_a)
+
+```
+
+
+```{r}
+p_load(quanteda.textmodels,LiblineaR)
+
+train_matrix<-dfm(danish_data$tweet)
+
+test_matrix<-dfm(danish_data_test$tweet)
+
+model<-textmodel_svm(train_matrix, danish_data$subtask_a, weight = c("docfreq"))
+
+
+pred<-predict(model, newdata = test_matrix)
+
+danish_data_test$pred<-pred
+
+
+```
+
