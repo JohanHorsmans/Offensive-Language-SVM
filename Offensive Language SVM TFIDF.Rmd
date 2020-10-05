@@ -1,0 +1,65 @@
+---
+title: "Offensive Language SVM (TFIDF)"
+Author: "Aske Bredahl Nielsen & Johan Horsmans"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# training data
+install.packages("tidyverse")
+library(tidyverse)
+library(pacman)
+p_load(recipes, textrecipes)
+
+danish_data <- read_delim("offenseval-da-training-v1.tsv","\t", escape_double = FALSE, trim_ws = TRUE) %>% na.omit
+# test data
+danish_data_test <- read_delim("offenseval-da-test-v1.tsv","\t", escape_double = FALSE, trim_ws = TRUE) %>% na.omit
+
+
+
+# Remove stopwords
+stopwords_regex = paste(stopwords("da",source= "snowball"), collapse = '\\b|\\b')
+stopwords_regex = paste0('\\b', stopwords_regex, '\\b')
+danish_data$clean_tweet = stringr::str_replace_all(danish_data$tweet, stopwords_regex, '')
+# remove numbers
+danish_data$clean_tweet <-  removeNumbers(danish_data$clean_tweet)
+# Stem words
+danish_data$clean_tweet <-  wordStem(danish_data$clean_tweet, language = "danish")
+#repeat for test data
+stopwords_regex = paste(stopwords("da",source= "snowball"), collapse = '\\b|\\b')
+stopwords_regex = paste0('\\b', stopwords_regex, '\\b')
+danish_data_test$clean_tweet = stringr::str_replace_all(danish_data_test$tweet, stopwords_regex, '')
+# remove numbers
+danish_data_test$clean_tweet <-  removeNumbers(danish_data_test$clean_tweet)
+# Stem words
+danish_data_test$clean_tweet <-  wordStem(danish_data_test$clean_tweet, language = "danish")
+# remove punctuation
+danish_data_test$clean_tweet<-removePunctuation(danish_data_test$clean_tweet)
+danish_data$clean_tweet<-removePunctuation(danish_data$clean_tweet)
+
+text_recipe <- recipes::recipe(subtask_a ~ ., data = danish_data) %>% 
+  recipes::update_role(id, new_role = "ID") %>% 
+  step_tokenize(clean_tweet) %>% 
+  step_tokenfilter(clean_tweet, max_tokens = 100) %>%
+  step_tfidf(clean_tweet)
+```
+
+```{r}
+p_load(parsnip, workflows, yardstick, spacyr, tidyverse, kernlab)
+
+
+#Modelling:
+text_model_svm_spec <- svm_poly("classification") %>% set_engine("kernlab")
+text_model_svm_wf <- workflows::workflow() %>% add_recipe(text_recipe) %>% add_model(text_model_svm_spec)
+
+fit_svm_model <- fit(text_model_svm_wf, danish_data)
+
+predictions_SVM <- predict(fit_svm_model, danish_data_test)
+
+
+```
+
