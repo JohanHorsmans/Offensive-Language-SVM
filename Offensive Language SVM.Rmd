@@ -1,0 +1,173 @@
+---
+title: "Offensive Language SVM"
+Author: "Aske Bredahl Nielsen & Johan Horsmans"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(pacman, qdap)
+p_load(tidyverse, stringr, tm, ggplot2, GGally, e1071, caret,stopwords, stringi, tm, SnowballC,stringr,fastmatch)
+# training data
+danish_data <- read_delim("offenseval-da-training-v1.tsv","\t", escape_double = FALSE, trim_ws = TRUE) %>% na.omit
+# test data
+danish_data_test <- read_delim("offenseval-da-test-v1.tsv","\t", escape_double = FALSE, trim_ws = TRUE) %>% na.omit
+```
+
+Trim the data:
+- Remove stopwords
+- Remove numbers
+- Stem words
+```{r}
+# Remove stopwords
+stopwords_regex = paste(stopwords("da",source= "snowball"), collapse = '\\b|\\b')
+stopwords_regex = paste0('\\b', stopwords_regex, '\\b')
+danish_data$clean_tweet = stringr::str_replace_all(danish_data$tweet, stopwords_regex, '')
+# remove numbers
+danish_data$clean_tweet <-  removeNumbers(danish_data$clean_tweet)
+# Stem words
+danish_data$clean_tweet <-  wordStem(danish_data$clean_tweet, language = "danish")
+#repeat for test data
+stopwords_regex = paste(stopwords("da",source= "snowball"), collapse = '\\b|\\b')
+stopwords_regex = paste0('\\b', stopwords_regex, '\\b')
+danish_data_test$clean_tweet = stringr::str_replace_all(danish_data_test$tweet, stopwords_regex, '')
+# remove numbers
+danish_data_test$clean_tweet <-  removeNumbers(danish_data_test$clean_tweet)
+# Stem words
+danish_data_test$clean_tweet <-  wordStem(danish_data_test$clean_tweet, language = "danish")
+# remove punctuation
+danish_data_test$clean_tweet<-removePunctuation(danish_data_test$clean_tweet)
+danish_data$clean_tweet<-removePunctuation(danish_data$clean_tweet)
+```
+
+Find swear words
+```{r}
+# list of swear words
+bandeord<-c("trunte","lort","lortet","aber","fucking","fuck","luder","kælling","fanden","neger","pisse","sgu","svin","bøsserøven","bøsserøv","bøsserøve","fjolser","kraftedeme","kællinger","ludere","negere","lorte","skid","skide","møgunger","møgsæk","helvede","perker","perkere","perkerne","kneppet","negerne","luderne","kællingerne","trunter","trunterne","satan","smatso","bitches","bitch","fandeme","bullshit","pis","røv","shit","kæft","bøsse","idiot","idioter","idioterne","pikslikker","fandme","fucke","djævel","djævle","fjols","møg","faggot","pokker","bindegal","satme","kraftædme","kraftedme","stodder","skøge","spasser","mær","tosse","lorteunger","")
+tweets<-danish_data$tweet
+count.kw <- function(tweets) sum(sapply(bandeord, grepl, x=tolower(tweets), fixed=TRUE))
+bandeord_train<-c()
+for (i in 1:nrow(danish_data)){
+  bandeord_train[i]<-count.kw(danish_data$tweet[i])
+}
+bandeord_train
+danish_data$swear_words <- bandeord_train
+### repeat for test set ###
+tweets1<-danish_data_test$tweet
+count.kw <- function(tweets1) sum(sapply(bandeord, grepl, x=tolower(tweets1), fixed=TRUE))
+bandeord_test<-c()
+for (i in 1:nrow(danish_data_test)){
+  bandeord_test[i]<-count.kw(danish_data_test$tweet[i])
+}
+danish_data_test$swear_words <- bandeord_test
+```
+
+Create variables with linguistic features for both training and test set
+- amount of words in each comment
+- average length of words
+- ratio of capitalized letters
+```{r}
+danish_data$sentence_length <- 1
+split<-c()
+# make a column for length of comment
+for (i in 1:nrow(danish_data)){
+split[i] <- str_split(danish_data$tweet[i], " ")
+danish_data$sentence_length[i] <- length(split[[i]])
+}
+# make a column for average length of words
+danish_data$mean_word_length <- 1
+string_length <- c()
+word_length <- c()
+test <- c()
+no_pct_tweet <- removePunctuation(danish_data$tweet)
+for (i in 1:nrow(danish_data)){
+string_length[i] <- str_split(no_pct_tweet[i], " ")
+word_length <- c()
+  for (k in 1:length(string_length[[i]])){
+    word_length[k] <-  nchar(string_length[[i]][k])
+  }
+danish_data$mean_word_length[i] <- sum(word_length) / length(string_length[[i]])
+}
+# make a column for number of capitalized letters
+ratio <- sapply(regmatches(danish_data$tweet, gregexpr("[A-Z]", danish_data$tweet, perl=TRUE)), length) /
+  sapply(regmatches(danish_data$tweet, gregexpr("[a-z]", danish_data$tweet, perl=TRUE)), length)
+ratio <- ifelse(ratio == Inf, 1, ratio)
+danish_data$caps_ratio <- ratio
+# get sentiment score for each comment using SENTIDA
+danish_data$Sentiment_score <- 1
+danish_data <- na.omit(danish_data)
+for (i in 1:nrow(danish_data)){
+  danish_data$Sentiment_score[i] <- Sentida::sentida(danish_data$tweet[i], output = "total")
+}
+
+### Repeat for test set ###
+danish_data_test$sentence_length <- 1 
+# make a column for length of comment
+for (i in 1:nrow(danish_data_test)){
+split[i] <- str_split(danish_data_test$tweet[i], " ")
+danish_data_test$sentence_length[i] <- length(split[[i]])
+}
+# make a column for average length of words
+danish_data_test$mean_word_length <- 1
+string_length <- c()
+word_length <- c()
+test <- c()
+no_pct_tweet <- removePunctuation(danish_data_test$tweet)
+for (i in 1:nrow(danish_data_test)){
+string_length[i] <- str_split(no_pct_tweet[i], " ")
+word_length <- c()
+  for (k in 1:length(string_length[[i]])){
+    word_length[k] <-  nchar(string_length[[i]][k])
+  }
+danish_data_test$mean_word_length[i] <- sum(word_length) / length(string_length[[i]])
+}
+# make a column for number of capitalized letters
+ratio <- sapply(regmatches(danish_data_test$tweet, gregexpr("[A-Z]", danish_data_test$tweet, perl=TRUE)), length) /
+  sapply(regmatches(danish_data_test$tweet, gregexpr("[a-z]", danish_data_test$tweet, perl=TRUE)), length)
+ratio <- ifelse(ratio == Inf, 1, ratio)
+danish_data_test$caps_ratio <- ratio
+# get sentiment score for each comment using SENTIDA
+install.packages("devtools")
+devtools::install_github("Guscode/Sentida")
+library(Sentida)
+danish_data_test$Sentiment_score <- 1
+danish_data_test <- na.omit(danish_data_test)
+for (i in 1:nrow(danish_data_test)){
+  danish_data_test$Sentiment_score[i] <- Sentida::sentida(danish_data_test$tweet[i], output = "total")
+}
+```
+Modeling:
+
+```{r}
+p_load(MLmetrics)
+
+#Making subtask_a factor
+danish_data$subtask_a<-as.factor(danish_data$subtask_a)
+danish_data_test$subtask_a<-as.factor(danish_data_test$subtask_a)
+
+#SVM with only swear words as predictor
+svm_model1<-svm(subtask_a~swear_words, danish_data)
+
+danish_data_test$svm1_predictions<-predict(svm_model1, danish_data_test)
+
+F1_Score(danish_data_test$subtask_a, danish_data_test$svm1_predictions, positive="OFF")
+
+#Using all predictors:
+svm_model2<-svm(subtask_a~swear_words+sentence_length+mean_word_length+caps_ratio+Sentiment_score, danish_data)
+
+danish_data_test$svm2_predictions<-predict(svm_model2, danish_data_test)
+
+F1_Score(danish_data_test$subtask_a, danish_data_test$svm2_predictions, positive="OFF")
+
+#Using Swear Words and Sentiment
+svm_model3<-svm(subtask_a~swear_words+Sentiment_score, danish_data)
+
+danish_data_test$svm3_predictions<-predict(svm_model3, danish_data_test)
+
+F1_Score(danish_data_test$subtask_a, danish_data_test$svm3_predictions, positive="OFF")
+
+```
+
