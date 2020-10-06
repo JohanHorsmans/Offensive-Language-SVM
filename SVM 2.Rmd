@@ -1,0 +1,64 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(pacman)
+p_load(readr, tidyverse,rsample,recipes, textrecipes, parsnip, yardstick,workflows, discrim,kernlab)
+install.packages("parsnip")
+library("parsnip")
+
+loading_data <- function(path) {
+  readr::read_csv(path, locale = locale(encoding = "latin1"))
+}
+
+corpus <- loading_data("corpus.csv") %>% 
+          mutate(Id = row_number(), label = factor(label)) %>% 
+          na.omit()
+
+
+text_split <- initial_split(corpus)
+training_set <- training(text_split)
+test_set <- testing(text_split)
+
+?step_tokenize
+
+text_recipe <- recipe(label ~ ., data = training_set) %>% 
+  update_role(Id, new_role = "ID") %>% 
+  step_tokenize(text, engine = "spacyr") %>% 
+  step_stopwords(text) %>%
+  step_lemma(text) %>%
+  step_tokenfilter(text, max_tokens = 100) %>%
+  step_tfidf(text)
+
+```
+
+```{r}
+text_model_NB_spec <- naive_Bayes() %>% set_engine("naivebayes") %>% set_mode("classification")
+text_model_svm_spec <- svm_poly("classification") %>% set_engine("kernlab")
+```
+
+```{r}
+text_model_NB_wf <- workflows::workflow() %>% add_recipe(text_recipe) %>% add_model(text_model_NB_spec)
+text_model_svm_wf <- workflows::workflow() %>% add_recipe(text_recipe) %>% add_model(text_model_svm_spec)
+
+```
+
+```{r}
+fit_NB_model <- fit(text_model_NB_wf, training_set)
+fit_svm_model <- fit(text_model_svm_wf, training_set)
+```
+
+```{r}
+predictions_NB <- predict(fit_NB_model, test_set)
+predictions_SVM <- predict(fit_svm_model, test_set)
+
+bind_cols(test_set,predictions_NB) %>% conf_mat(label, .pred_class) 
+bind_cols(test_set,predictions_NB) %>% accuracy(truth = label, estimate = .pred_class)
+```
+
