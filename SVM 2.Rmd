@@ -10,30 +10,48 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r}
 library(pacman)
 p_load(readr, tidyverse,rsample,recipes, textrecipes, parsnip, yardstick,workflows, discrim,kernlab)
-install.packages("parsnip")
 library("parsnip")
 
 loading_data <- function(path) {
-  readr::read_csv(path, locale = locale(encoding = "latin1"))
+  read_delim(path, "\t", escape_double = FALSE, trim_ws = TRUE)
 }
 
-corpus <- loading_data("corpus.csv") %>% 
-          mutate(Id = row_number(), label = factor(label)) %>% 
+corpus <- loading_data("offenseval-da-training-v1.tsv") %>% 
+          mutate(Id = id,label = factor(subtask_a),text=tweet) %>% 
+          na.omit()
+testing<-loading_data("offenseval-da-test-v1.tsv") %>% 
+          mutate(Id = id,label = factor(subtask_a),text=tweet) %>% 
           na.omit()
 
+#
+#loading_data <- function(path) {
+#  readr::read_csv(path, locale = locale(encoding = "latin1"))
+#}
 
-text_split <- initial_split(corpus)
-training_set <- training(text_split)
-test_set <- testing(text_split)
+#corpus <- loading_data("corpus.csv") %>% 
+#          mutate(Id = row_number(), label = factor(label)) %>% 
+#          na.omit()
 
-?step_tokenize
+#text_split <- initial_split(corpus)
+#training_set <- training(text_split)
+#test_set <- testing(text_split)
+
+#
+
+corpus<-corpus[,4:6]
+
+testing<-testing[,4:6]
+
+training_set <- corpus
+test_set <- testing
+#
 
 text_recipe <- recipe(label ~ ., data = training_set) %>% 
   update_role(Id, new_role = "ID") %>% 
-  step_tokenize(text, engine = "spacyr") %>% 
-  step_stopwords(text) %>%
-  step_lemma(text) %>%
-  step_tokenfilter(text, max_tokens = 100) %>%
+  step_tokenize(text, engine = "tokenizers", token = "ngrams") %>%
+ # step_stopwords(text) %>% 
+  #step_lemma(text) %>%
+  step_tokenfilter(text, max_tokens = 10000) %>%
   step_tfidf(text)
 
 ```
@@ -60,5 +78,9 @@ predictions_SVM <- predict(fit_svm_model, test_set)
 
 bind_cols(test_set,predictions_NB) %>% conf_mat(label, .pred_class) 
 bind_cols(test_set,predictions_NB) %>% accuracy(truth = label, estimate = .pred_class)
+
+bind_cols(test_set,predictions_SVM) %>% conf_mat(label, .pred_class) 
+bind_cols(test_set,predictions_SVM) %>% accuracy(truth = label, estimate = .pred_class)
+
 ```
 
