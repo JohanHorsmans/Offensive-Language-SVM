@@ -1,0 +1,133 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(pacman)
+p_load(readr, tidyverse,rsample,recipes, textrecipes, parsnip, yardstick,workflows, discrim,kernlab)
+p_load(tidyverse, stringr, tm, ggplot2, GGally, e1071, caret,stopwords, stringi, tm, SnowballC,stringr,fastmatch)
+library("parsnip")
+
+loading_data <- function(path) {
+  read_delim(path, "\t", escape_double = FALSE, trim_ws = TRUE)
+}
+
+corpus <- loading_data("offenseval-da-training-v1.tsv") %>% 
+          mutate(Id = id,label = factor(subtask_a),text=tweet) %>% 
+          na.omit()
+testing<-loading_data("offenseval-da-test-v1.tsv") %>% 
+          mutate(Id = id,label = factor(subtask_a),text=tweet) %>% 
+          na.omit()
+
+
+###CLEANING####
+
+# Remove stopwords
+testing$text<-tolower(testing$text) 
+corpus$text<-tolower(corpus$text) 
+
+stopwords_regex = paste(stopwords("da",source= "snowball"), collapse = '\\b|\\b')
+stopwords_regex = paste0('\\b', stopwords_regex, '\\b')
+corpus$text = stringr::str_replace_all(corpus$text, stopwords_regex, '')
+# remove numbers
+corpus$text <-  removeNumbers(corpus$text)
+# Stem words
+corpus$text <-  wordStem(corpus$text, language = "danish")
+#repeat for test data
+stopwords_regex = paste(stopwords("da",source= "snowball"), collapse = '\\b|\\b')
+stopwords_regex = paste0('\\b', stopwords_regex, '\\b')
+testing$text = stringr::str_replace_all(testing$text, stopwords_regex, '')
+# remove numbers
+testing$text <-  removeNumbers(testing$text)
+# Stem words
+testing$text <-  wordStem(testing$text, language = "danish")
+# remove punctuation
+testing$text<-removePunctuation(testing$text)
+corpus$text<-removePunctuation(corpus$text)
+
+
+
+
+###CLEANING###
+
+
+corpus<-corpus[,4:6]
+
+testing<-testing[,4:6]
+
+training_set <- corpus
+test_set <- testing
+#
+
+
+# Tokenizer
+text_recipe <- recipe(label ~ ., data = training_set) %>% 
+  update_role(Id, new_role = "ID") %>% 
+  step_tokenize(text, engine = "spacyr", token = "words") %>%
+ ## step_stopwords(text) %>% 
+  step_lemma(text) %>%
+  step_tokenfilter(text, max_tokens = 1000) %>%
+  step_tfidf(text)
+#
+
+# Set value of N for n-gram
+text_recipe <- recipe(label ~ ., data = training_set) %>% 
+  update_role(Id, new_role = "ID") %>% 
+  step_tokenize(text) %>%
+  step_ngram(text, num_tokens = 5) %>%
+ ## step_stopwords(text) %>% 
+  ##step_lemma(text) %>%
+  step_tokenfilter(text, max_tokens = 100) %>%
+  step_tfidf(text)
+
+#TRI GRAM:
+#rec <- recipe(~ text, data = abc_tibble) %>%
+ # step_tokenize(text) %>%
+  #step_ngram(text, num_tokens = 3) %>%
+  #step_tokenfilter(text) %>%
+  #step_tf(text)
+
+```
+
+```{r}
+text_model_log_spec <- logistic_reg() %>% set_engine("glm") %>% set_mode("classification")
+text_model_NB_spec <- naive_Bayes() %>% set_engine("naivebayes") %>% set_mode("classification")
+text_model_svm_spec <- svm_poly("classification") %>% set_engine("kernlab")
+```
+
+```{r}
+text_model_log_wf <- workflows::workflow() %>% add_recipe(text_recipe) %>% add_model(text_model_log_spec)
+text_model_NB_wf <- workflows::workflow() %>% add_recipe(text_recipe) %>% add_model(text_model_NB_spec)
+text_model_svm_wf <- workflows::workflow() %>% add_recipe(text_recipe) %>% add_model(text_model_svm_spec)
+
+```
+
+```{r}
+fit_log_model <- fit(text_model_log_wf, training_set)
+fit_NB_model <- fit(text_model_NB_wf, training_set)
+fit_svm_model <- fit(text_model_svm_wf, training_set)
+
+#warnings()
+```
+
+```{r}
+predictions_log <- predict(fit_log_model, test_set)
+predictions_NB <- predict(fit_NB_model, test_set)
+predictions_SVM <- predict(fit_svm_model, test_set)
+
+bind_cols(test_set,predictions_log) %>% conf_mat(label, .pred_class) 
+bind_cols(test_set,predictions_log) %>% accuracy(truth = label, estimate = .pred_class)
+
+bind_cols(test_set,predictions_NB) %>% conf_mat(label, .pred_class) 
+bind_cols(test_set,predictions_NB) %>% accuracy(truth = label, estimate = .pred_class)
+
+bind_cols(test_set,predictions_SVM) %>% conf_mat(label, .pred_class) 
+bind_cols(test_set,predictions_SVM) %>% accuracy(truth = label, estimate = .pred_class)
+
+```
+
